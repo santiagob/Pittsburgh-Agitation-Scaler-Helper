@@ -4,6 +4,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkinter import scrolledtext
 import glob
+from datetime import datetime
+import re
 
 class PittsburghObservationTool:
     def __init__(self, root):
@@ -12,7 +14,7 @@ class PittsburghObservationTool:
         
         # Remove fixed geometry - let it auto-size
         # Set minimum size to prevent window from being too small
-        self.root.minsize(800, 600)
+        self.root.minsize(1000, 700)
         
         # Variables
         self.current_csv_path = None
@@ -22,6 +24,7 @@ class PittsburghObservationTool:
         self.current_row_index = 0
         self.unsaved_changes = False
         self.existing_processed_file = None
+        self.calculated_duration = None
         
         # Pittsburgh Agitation Scale parameters
         self.pas_categories = {
@@ -42,6 +45,91 @@ class PittsburghObservationTool:
         
         # Bind window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    def parse_time_string(self, time_str):
+        """Parse various time formats and return total seconds from start of day"""
+        if pd.isna(time_str) or time_str == '':
+            return None
+            
+        time_str = str(time_str).strip()
+        
+        # Try different time formats
+        formats = [
+            '%H:%M:%S',      # 14:30:45
+            '%H:%M',         # 14:30
+            '%I:%M %p',      # 2:30 PM
+            '%I:%M:%S %p',   # 2:30:45 PM
+            '%H.%M.%S',      # 14.30.45
+            '%H.%M',         # 14.30
+        ]
+        
+        for fmt in formats:
+            try:
+                time_obj = datetime.strptime(time_str, fmt)
+                # Calculate seconds from midnight
+                return time_obj.hour * 360 + time_obj.minute * 60 + time_obj.second
+            except ValueError:
+                continue
+        
+        # Try to extract numbers for minutes:seconds format (e.g., "5:30" meaning 5 min 30 sec)
+        match = re.match(r'(\d+):(\d+)', time_str)
+        if match:
+            minutes = int(match.group(1))
+            seconds = int(match.group(2))
+            if minutes < 60:  # Likely minutes:seconds rather than hours:minutes
+                return minutes * 60 + seconds
+        
+        # Try to parse as just seconds
+        try:
+            return float(time_str)
+        except ValueError:
+            return None
+    
+    def calculate_time_difference(self, time1, time2):
+        """Calculate the difference in seconds between two time strings"""
+        seconds1 = self.parse_time_string(time1)
+        seconds2 = self.parse_time_string(time2)
+        
+        if seconds1 is not None and seconds2 is not None:
+            diff = seconds2 - seconds1
+            # Handle case where times cross midnight
+            if diff < 0:
+                diff += 24 * 360  # Add 24 hours
+            return diff
+        return None
+        
+    def calculate_duration_to_next(self):
+        """Calculate duration in seconds from current observation to next"""
+        if self.current_df is None or len(self.current_df) == 0:
+            return None
+            
+        if self.current_row_index >= len(self.current_df) - 1:
+            return None  # No next row
+            
+        current_row = self.current_df.iloc[self.current_row_index]
+        next_row = self.current_df.iloc[self.current_row_index + 1]
+        
+        # Try to get time from Time column
+        if 'Time' in self.current_df.columns:
+            duration = self.calculate_time_difference(current_row['Time'], next_row['Time'])
+            if duration is not None and duration > 0:
+                return duration
+        
+        # Try other common time column names
+        for col in ['time', 'TIME', 'Timestamp', 'timestamp', 'Start_Time', 'start_time']:
+            if col in self.current_df.columns:
+                duration = self.calculate_time_difference(current_row[col], next_row[col])
+                if duration is not None and duration > 0:
+                    return duration
+        
+        return None
+        
+    def apply_calculated_duration(self):
+        """Apply the calculated duration to the duration field"""
+        if self.calculated_duration is not None:
+            self.duration_var.set(str(int(self.calculated_duration)))
+            self.mark_unsaved()
+            self.update_status(f"Applied calculated duration: {int(self.calculated_duration)} seconds")
         
     def center_window(self):
         """Center the window on the screen after auto-sizing"""
@@ -89,7 +177,7 @@ class PittsburghObservationTool:
         self.unsaved_indicator.grid(row=0, column=2, padx=20, sticky=tk.E)
         
         self.file_info_label = ttk.Label(top_frame, text="", wraplength=600)
-        self.file_info_label.grid(row=1, column=0, columnspan=3, pady=5, sticky=(tk.W, tk.E))
+        self.file_info_label.grid(row=1, column=0, columnspan=12, pady=5, sticky=(tk.W, tk.E))
         
         # Existing data indicator
         self.existing_data_label = ttk.Label(top_frame, text="", foreground="blue", font=('Arial', 9))
@@ -143,8 +231,8 @@ class PittsburghObservationTool:
         self.score_label = ttk.Label(header_frame, text="Score: --", font=('Arial', 11))
         self.score_label.grid(row=0, column=2, padx=10, sticky=tk.W)
         
-        # Main observation text - set reasonable minimum size
-        self.observation_text = tk.Text(current_obs_frame, height=6, width=50, wrap=tk.WORD, 
+        # Main observation text - INCREASED WIDTH
+        self.observation_text = tk.Text(current_obs_frame, height=6, width=70, wrap=tk.WORD, 
                                        font=('Arial', 14), bg='#f8f8f8')
         self.observation_text.grid(row=1, column=0, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.observation_text.config(state=tk.DISABLED)  # Make read-only
@@ -172,8 +260,8 @@ class PittsburghObservationTool:
         self.next_score_label = ttk.Label(next_header_frame, text="Score: --", font=('Arial', 10), foreground='gray')
         self.next_score_label.grid(row=0, column=2, padx=10, sticky=tk.W)
         
-        # Next observation text (smaller)
-        self.next_observation_text = tk.Text(next_obs_frame, height=3, width=50, wrap=tk.WORD, 
+        # Next observation text - INCREASED WIDTH
+        self.next_observation_text = tk.Text(next_obs_frame, height=3, width=70, wrap=tk.WORD, 
                                             font=('Arial', 11), bg='#f0f0f0', foreground='gray')
         self.next_observation_text.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.next_observation_text.config(state=tk.DISABLED)  # Make read-only
@@ -182,17 +270,17 @@ class PittsburghObservationTool:
         nav_frame = ttk.LabelFrame(middle_container, text="ROW NAVIGATION", padding="10")
         nav_frame.grid(row=0, column=1, sticky=(tk.N, tk.S, tk.E, tk.W), padx=10)
         
-        ttk.Button(nav_frame, text="↑\nPrevious\nRow", width=12, 
+        ttk.Button(nav_frame, text="↑ Previous Row", width=12, 
                   command=self.previous_row).grid(row=0, column=0, pady=10)
         
         ttk.Label(nav_frame, text="(Up Arrow)", font=('Arial', 9), 
                  foreground='gray').grid(row=1, column=0)
         
-        self.current_row_label = ttk.Label(nav_frame, text="Current\nRow: 1", 
+        self.current_row_label = ttk.Label(nav_frame, text="Current Row: 1", 
                                           font=('Arial', 11, 'bold'), justify=tk.CENTER)
         self.current_row_label.grid(row=2, column=0, pady=15)
         
-        ttk.Button(nav_frame, text="↓\nNext\nRow", width=12, 
+        ttk.Button(nav_frame, text="↓ Next Row", width=12, 
                   command=self.next_row).grid(row=3, column=0, pady=10)
         
         ttk.Label(nav_frame, text="(Down Arrow)", font=('Arial', 9), 
@@ -203,13 +291,15 @@ class PittsburghObservationTool:
                                        font=('Arial', 9), foreground='green')
         self.autosave_label.grid(row=5, column=0, pady=10)
         
-        # Quick rating shortcuts info
-        ttk.Label(nav_frame, text="Quick Set All:\nCtrl+1 to Ctrl+4", 
-                 font=('Arial', 8), foreground='gray', justify=tk.CENTER).grid(row=6, column=0, pady=5)
+        # Pittsburgh Scale Rating Section with helper panel
+        rating_container = ttk.Frame(main_frame)
+        rating_container.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=10)
+        rating_container.columnconfigure(0, weight=3)  # More weight to rating section
+        rating_container.columnconfigure(1, weight=1)  # Less weight to helper section
         
-        # Pittsburgh Scale Rating Section
-        rating_frame = ttk.LabelFrame(main_frame, text="Pittsburgh Agitation Scale Rating", padding="10")
-        rating_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=10)
+        # Left side - Main rating controls
+        rating_frame = ttk.LabelFrame(rating_container, text="Pittsburgh Agitation Scale Rating", padding="10")
+        rating_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
         rating_frame.columnconfigure(1, weight=1)
         
         self.rating_vars = {}
@@ -221,7 +311,7 @@ class PittsburghObservationTool:
             
             self.rating_vars[category] = tk.StringVar(value=options[0])
             combo = ttk.Combobox(rating_frame, textvariable=self.rating_vars[category], 
-                                values=options, width=40, state='readonly')
+                                values=options, width=50, state='readonly')
             combo.grid(row=i, column=1, pady=5, padx=5, sticky=(tk.W, tk.E))
             
             # Store reference to combo
@@ -242,7 +332,7 @@ class PittsburghObservationTool:
         
         ttk.Label(duration_frame, text="Observation Duration (seconds):", 
                  font=('Arial', 10, 'bold')).grid(row=0, column=0, padx=5)
-        self.duration_var = tk.StringVar(value="600")  # Default 10 minutes = 600 seconds
+        self.duration_var = tk.StringVar(value="60")  # Default 10 minutes = 60 seconds
         self.duration_entry = ttk.Entry(duration_frame, textvariable=self.duration_var, width=10)
         self.duration_entry.grid(row=0, column=1, padx=5)
         self.duration_entry.bind('<KeyRelease>', lambda e: self.mark_unsaved() if e.keysym not in ['Up', 'Down', 'Left', 'Right'] else None)
@@ -252,8 +342,38 @@ class PittsburghObservationTool:
         self.duration_entry.bind('<Down>', lambda e: (self.next_row(), "break")[1])
         
         # Helper label for common durations
-        ttk.Label(duration_frame, text="(e.g., 60s = 1 min, 300s = 5 min, 600s = 10 min)", 
+        ttk.Label(duration_frame, text="(60s = 1 min, 300s = 5 min, 60s = 10 min)", 
                  font=('Arial', 9), foreground='gray').grid(row=0, column=2, padx=5)
+        
+        # Right side - Helper panel with time calculator and shortcuts info
+        helper_frame = ttk.LabelFrame(rating_container, text="Helper Tools", padding="10")
+        helper_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N), padx=(5, 0))
+        
+        # Time Calculator section
+        calc_frame = ttk.LabelFrame(helper_frame, text="Time to Next Obs.", padding="5")
+        calc_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        self.time_calc_label = ttk.Label(calc_frame, text="-- seconds", 
+                                        font=('Arial', 10, 'bold'), foreground='blue')
+        self.time_calc_label.grid(row=0, column=0, pady=5)
+        
+        self.apply_duration_btn = ttk.Button(calc_frame, text="Set Duration (Ctrl+D)", 
+                                            command=self.apply_calculated_duration, width=15)
+        self.apply_duration_btn.grid(row=1, column=0, pady=5)
+        
+        # Keyboard Shortcuts info
+        shortcuts_frame = ttk.LabelFrame(helper_frame, text="Keyboard Shortcuts", padding="5")
+        shortcuts_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=10)
+        
+        shortcuts_text = """Ctrl+0: All ratings to 0
+Ctrl+1-4: Set all to level
+Ctrl+S: Save file
+Ctrl+D: Apply duration
+↑↓: Navigate rows
+Alt+←→: Navigate files"""
+        
+        ttk.Label(shortcuts_frame, text=shortcuts_text, 
+                 font=('Arial', 9), foreground='gray', justify=tk.LEFT).grid(row=0, column=0, padx=5, pady=5)
         
         # Save buttons
         button_frame = ttk.Frame(main_frame)
@@ -262,7 +382,7 @@ class PittsburghObservationTool:
         ttk.Button(button_frame, text="Set All to 0 (Not Present) [Ctrl+0]", 
                   command=self.set_all_zero, style='Warning.TButton').grid(row=0, column=0, padx=5)
         
-        # Main save button - now the primary action
+        # Main save button
         self.save_file_btn = ttk.Button(button_frame, text="💾 Save File to Disk [Ctrl+S]", 
                                         command=self.save_file, style='Accent.TButton')
         self.save_file_btn.grid(row=0, column=1, padx=20)
@@ -280,6 +400,7 @@ class PittsburghObservationTool:
         self.root.bind_all('<Alt-Right>', lambda e: self.next_csv())
         self.root.bind_all('<Control-s>', lambda e: self.save_file())
         self.root.bind_all('<Control-0>', lambda e: self.set_all_zero())
+        self.root.bind_all('<Control-d>', lambda e: self.apply_calculated_duration())  # Quick apply duration
         
         # Alternative number keys for ratings (Ctrl+1-4 for quick rating)
         self.root.bind_all('<Control-Key-1>', lambda e: self.quick_set_rating(1))
@@ -324,7 +445,7 @@ class PittsburghObservationTool:
                         # Convert to appropriate dtype to avoid FutureWarning
                         if col == 'Duration_Seconds':
                             # Duration should be numeric
-                            self.current_df[col] = pd.to_numeric(existing_df[col], errors='coerce').fillna(600)
+                            self.current_df[col] = pd.to_numeric(existing_df[col], errors='coerce').fillna(60)
                         else:
                             # Rating columns should be stored as integers
                             self.current_df[col] = pd.to_numeric(existing_df[col], errors='coerce').fillna(0).astype('Int64')
@@ -389,9 +510,9 @@ class PittsburghObservationTool:
         try:
             duration = float(self.duration_var.get())
             if duration <= 0:
-                duration = 600  # Default to 600 seconds if invalid
+                duration = 60  # Default to 60 seconds if invalid
         except ValueError:
-            duration = 600
+            duration = 60
             
         # Ensure Duration_Seconds column has proper dtype
         if 'Duration_Seconds' not in self.current_df.columns:
@@ -455,6 +576,7 @@ class PittsburghObservationTool:
             self.current_row_index = 0
             self.display_current_row()
             self.display_next_row()
+            self.update_time_calculation()
             self.clear_unsaved()
             
             filename = os.path.basename(csv_path)
@@ -466,6 +588,26 @@ class PittsburghObservationTool:
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load CSV: {str(e)}")
+    
+    def update_time_calculation(self):
+        """Update the calculated time duration display"""
+        self.calculated_duration = self.calculate_duration_to_next()
+        
+        if self.calculated_duration is not None:
+            # Format the display
+            minutes = int(self.calculated_duration // 60)
+            seconds = int(self.calculated_duration % 60)
+            
+            if minutes > 0:
+                display_text = f"{int(self.calculated_duration)} sec ({minutes}m {seconds}s)"
+            else:
+                display_text = f"{int(self.calculated_duration)} seconds"
+            
+            self.time_calc_label.config(text=display_text, foreground='blue')
+            self.apply_duration_btn.config(state='normal')
+        else:
+            self.time_calc_label.config(text="-- seconds", foreground='gray')
+            self.apply_duration_btn.config(state='disabled')
             
     def display_current_row(self):
         if self.current_df is None or len(self.current_df) == 0:
@@ -521,7 +663,7 @@ class PittsburghObservationTool:
         if 'Duration_Seconds' in row and pd.notna(row['Duration_Seconds']) and row['Duration_Seconds'] != '':
             self.duration_var.set(str(int(row['Duration_Seconds']) if row['Duration_Seconds'] % 1 == 0 else row['Duration_Seconds']))
         else:
-            self.duration_var.set("600")  # Default to 600 seconds (10 minutes)
+            self.duration_var.set("60")  # Default to 60 seconds (10 minutes)
             
     def display_next_row(self):
         """Display preview of the next row"""
@@ -638,6 +780,7 @@ class PittsburghObservationTool:
             self.current_row_index += 1
             self.display_current_row()
             self.display_next_row()
+            self.update_time_calculation()
             
             # Remove focus from any widget to ensure arrow keys keep working
             self.root.focus_set()
@@ -651,6 +794,7 @@ class PittsburghObservationTool:
             self.current_row_index -= 1
             self.display_current_row()
             self.display_next_row()
+            self.update_time_calculation()
             
             # Remove focus from any widget to ensure arrow keys keep working
             self.root.focus_set()
