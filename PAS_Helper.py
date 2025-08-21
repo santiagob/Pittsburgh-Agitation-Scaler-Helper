@@ -9,7 +9,7 @@ class PittsburghObservationTool:
     def __init__(self, root):
         self.root = root
         self.root.title("Pittsburgh Agitation Scale Observation Tool")
-        self.root.geometry("1200x800")
+        self.root.geometry("1005x1000")
         
         # Variables
         self.current_csv_path = None
@@ -37,7 +37,7 @@ class PittsburghObservationTool:
         
         # Top frame - folder selection and file info
         top_frame = ttk.LabelFrame(main_frame, text="Dataset Selection", padding="10")
-        top_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        top_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         
         ttk.Button(top_frame, text="Select PwD Dataset Folder", 
                   command=self.select_folder).grid(row=0, column=0, padx=5)
@@ -48,32 +48,87 @@ class PittsburghObservationTool:
         self.file_info_label = ttk.Label(top_frame, text="")
         self.file_info_label.grid(row=1, column=0, columnspan=2, pady=5)
         
-        # Navigation frame
-        nav_frame = ttk.Frame(main_frame)
-        nav_frame.grid(row=1, column=0, columnspan=2, pady=10)
+        # CSV Navigation frame
+        csv_nav_frame = ttk.Frame(main_frame)
+        csv_nav_frame.grid(row=1, column=0, columnspan=3, pady=10)
         
-        ttk.Button(nav_frame, text="◀ Previous CSV", 
+        ttk.Button(csv_nav_frame, text="◀ Previous CSV File", 
                   command=self.previous_csv).grid(row=0, column=0, padx=5)
-        ttk.Button(nav_frame, text="Next CSV ▶", 
+        ttk.Button(csv_nav_frame, text="Next CSV File ▶", 
                   command=self.next_csv).grid(row=0, column=1, padx=5)
-        ttk.Button(nav_frame, text="◀ Previous Row", 
-                  command=self.previous_row).grid(row=0, column=2, padx=20)
-        ttk.Button(nav_frame, text="Next Row ▶", 
-                  command=self.next_row).grid(row=0, column=3, padx=5)
         
-        # Current observation display
-        obs_frame = ttk.LabelFrame(main_frame, text="Current Observation", padding="10")
-        obs_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        # Middle section container
+        middle_container = ttk.Frame(main_frame)
+        middle_container.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         
-        self.observation_text = scrolledtext.ScrolledText(obs_frame, height=8, width=100, wrap=tk.WORD)
-        self.observation_text.grid(row=0, column=0, columnspan=2)
+        # Left side - Observations display
+        obs_container = ttk.Frame(middle_container)
+        obs_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
         
-        self.row_info_label = ttk.Label(obs_frame, text="Row: 0/0")
-        self.row_info_label.grid(row=1, column=0, pady=5)
+        # Current observation frame
+        current_obs_frame = ttk.LabelFrame(obs_container, text="CURRENT OBSERVATION", padding="10")
+        current_obs_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Header info frame (Time, Song, Score)
+        header_frame = ttk.Frame(current_obs_frame)
+        header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        self.time_label = ttk.Label(header_frame, text="Time: --", font=('Arial', 11))
+        self.time_label.grid(row=0, column=0, padx=10, sticky=tk.W)
+        
+        self.song_label = ttk.Label(header_frame, text="Song: --", font=('Arial', 11))
+        self.song_label.grid(row=0, column=1, padx=10, sticky=tk.W)
+        
+        self.score_label = ttk.Label(header_frame, text="Score: --", font=('Arial', 11))
+        self.score_label.grid(row=0, column=2, padx=10, sticky=tk.W)
+        
+        # Main observation text
+        self.observation_text = tk.Text(current_obs_frame, height=8, width=70, wrap=tk.WORD, 
+                                       font=('Arial', 14), bg='#f8f8f8')
+        self.observation_text.grid(row=1, column=0, pady=5)
+        
+        self.row_info_label = ttk.Label(current_obs_frame, text="Row: 0/0", font=('Arial', 10, 'bold'))
+        self.row_info_label.grid(row=2, column=0, pady=5)
+        
+        # Next observation preview frame
+        next_obs_frame = ttk.LabelFrame(obs_container, text="NEXT OBSERVATION PREVIEW", padding="10")
+        next_obs_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        
+        # Next observation header
+        next_header_frame = ttk.Frame(next_obs_frame)
+        next_header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        
+        self.next_time_label = ttk.Label(next_header_frame, text="Time: --", font=('Arial', 10), foreground='gray')
+        self.next_time_label.grid(row=0, column=0, padx=10, sticky=tk.W)
+        
+        self.next_song_label = ttk.Label(next_header_frame, text="Song: --", font=('Arial', 10), foreground='gray')
+        self.next_song_label.grid(row=0, column=1, padx=10, sticky=tk.W)
+        
+        self.next_score_label = ttk.Label(next_header_frame, text="Score: --", font=('Arial', 10), foreground='gray')
+        self.next_score_label.grid(row=0, column=2, padx=10, sticky=tk.W)
+        
+        # Next observation text (smaller)
+        self.next_observation_text = tk.Text(next_obs_frame, height=4, width=70, wrap=tk.WORD, 
+                                            font=('Arial', 11), bg='#f0f0f0', foreground='gray')
+        self.next_observation_text.grid(row=1, column=0)
+        
+        # Right side - Row navigation buttons
+        nav_frame = ttk.LabelFrame(middle_container, text="ROW NAVIGATION", padding="10")
+        nav_frame.grid(row=0, column=1, sticky=(tk.N, tk.S), padx=10)
+        
+        ttk.Button(nav_frame, text="↑\nPrevious\nRow", width=12, 
+                  command=self.previous_row).grid(row=0, column=0, pady=10)
+        
+        self.current_row_label = ttk.Label(nav_frame, text="Current\nRow: 1", 
+                                          font=('Arial', 11, 'bold'), justify=tk.CENTER)
+        self.current_row_label.grid(row=1, column=0, pady=20)
+        
+        ttk.Button(nav_frame, text="↓\nNext\nRow", width=12, 
+                  command=self.next_row).grid(row=2, column=0, pady=10)
         
         # Pittsburgh Scale Rating Section
         rating_frame = ttk.LabelFrame(main_frame, text="Pittsburgh Agitation Scale Rating", padding="10")
-        rating_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        rating_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
         
         self.rating_vars = {}
         for i, (category, options) in enumerate(self.pas_categories.items()):
@@ -85,27 +140,34 @@ class PittsburghObservationTool:
                                 values=options, width=50, state='readonly')
             combo.grid(row=i, column=1, pady=5, padx=5)
         
-        # Time duration input
+        # Time duration input (in seconds)
         duration_frame = ttk.Frame(rating_frame)
         duration_frame.grid(row=len(self.pas_categories), column=0, columnspan=2, pady=10)
         
         ttk.Label(duration_frame, text="Observation Duration (seconds):", 
                  font=('Arial', 10, 'bold')).grid(row=0, column=0, padx=5)
-        self.duration_var = tk.StringVar(value="10")
-        ttk.Entry(duration_frame, textvariable=self.duration_var, width=10).grid(row=0, column=1, padx=5)
+        self.duration_var = tk.StringVar(value="600")  # Default 10 minutes = 600 seconds
+        duration_entry = ttk.Entry(duration_frame, textvariable=self.duration_var, width=10)
+        duration_entry.grid(row=0, column=1, padx=5)
         
-        # Save button
+        # Helper label for common durations
+        ttk.Label(duration_frame, text="(e.g., 60s = 1 min, 300s = 5 min, 600s = 10 min)", 
+                 font=('Arial', 9), foreground='gray').grid(row=0, column=2, padx=5)
+        
+        # Save buttons
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, columnspan=2, pady=20)
+        button_frame.grid(row=4, column=0, columnspan=3, pady=20)
         
+        ttk.Button(button_frame, text="Set All to 0 (Not Present)", 
+                  command=self.set_all_zero, style='Warning.TButton').grid(row=0, column=0, padx=5)
         ttk.Button(button_frame, text="Save Rating for Current Row", 
-                  command=self.save_rating, style='Accent.TButton').grid(row=0, column=0, padx=5)
+                  command=self.save_rating, style='Accent.TButton').grid(row=0, column=1, padx=5)
         ttk.Button(button_frame, text="Save All Changes to File", 
-                  command=self.save_file, style='Accent.TButton').grid(row=0, column=1, padx=5)
+                  command=self.save_file, style='Accent.TButton').grid(row=0, column=2, padx=5)
         
         # Status bar
         self.status_label = ttk.Label(main_frame, text="Ready", relief=tk.SUNKEN)
-        self.status_label.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        self.status_label.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         
     def select_folder(self):
         folder_path = filedialog.askdirectory(title="Select PwD Dataset Folder")
@@ -139,6 +201,7 @@ class PittsburghObservationTool:
             
             self.current_row_index = 0
             self.display_current_row()
+            self.display_next_row()
             
             filename = os.path.basename(csv_path)
             self.file_info_label.config(
@@ -153,45 +216,130 @@ class PittsburghObservationTool:
             
         row = self.current_df.iloc[self.current_row_index]
         
-        # Display observation data
-        self.observation_text.delete(1.0, tk.END)
-        display_text = ""
-        for col in self.current_df.columns:
-            if col not in ['Aberrant_Vocalization', 'Motor_Agitation', 
-                          'Aggressiveness', 'Resisting_Care', 'Duration_Seconds']:
-                display_text += f"**{col}**: {row[col]}\n"
+        # Update header labels
+        if 'Time' in row:
+            self.time_label.config(text=f"Time: {row['Time']}")
+        if 'Song' in row:
+            self.song_label.config(text=f"Song: {row['Song']}")
+        if 'Score' in row:
+            self.score_label.config(text=f"Score: {row['Score']}")
         
-        self.observation_text.insert(1.0, display_text)
+        # Display main observation text
+        self.observation_text.delete(1.0, tk.END)
+        if 'Observation' in row:
+            self.observation_text.insert(1.0, str(row['Observation']))
+        else:
+            # If no specific Observation column, show all other data
+            display_text = ""
+            for col in self.current_df.columns:
+                if col not in ['Aberrant_Vocalization', 'Motor_Agitation', 
+                              'Aggressiveness', 'Resisting_Care', 'Duration_Seconds',
+                              'Time', 'Song', 'Score']:
+                    display_text += f"{col}: {row[col]}\n"
+            self.observation_text.insert(1.0, display_text)
         
         # Update row info
         self.row_info_label.config(
             text=f"Row: {self.current_row_index + 1}/{len(self.current_df)}")
+        self.current_row_label.config(
+            text=f"Current\nRow: {self.current_row_index + 1}")
         
         # Load existing ratings if present
-        if pd.notna(row.get('Aberrant_Vocalization', '')):
-            for category in self.pas_categories:
-                col_name = category.replace(' ', '_')
-                if col_name in row and pd.notna(row[col_name]):
-                    self.rating_vars[category].set(row[col_name])
+        has_ratings = False
+        for category in self.pas_categories:
+            col_name = category.replace(' ', '_')
+            if col_name in row and pd.notna(row[col_name]) and row[col_name] != '':
+                self.rating_vars[category].set(row[col_name])
+                has_ratings = True
+            else:
+                self.rating_vars[category].set(self.pas_categories[category][0])
         
-        if 'Duration_Seconds' in row and pd.notna(row['Duration_Seconds']):
+        if 'Duration_Seconds' in row and pd.notna(row['Duration_Seconds']) and row['Duration_Seconds'] != '':
             self.duration_var.set(str(row['Duration_Seconds']))
+        else:
+            self.duration_var.set("600")  # Default to 600 seconds (10 minutes)
             
+    def display_next_row(self):
+        """Display preview of the next row"""
+        if self.current_df is None or len(self.current_df) == 0:
+            return
+            
+        if self.current_row_index < len(self.current_df) - 1:
+            next_row = self.current_df.iloc[self.current_row_index + 1]
+            
+            # Update next row header labels
+            if 'Time' in next_row:
+                self.next_time_label.config(text=f"Time: {next_row['Time']}")
+            else:
+                self.next_time_label.config(text="Time: --")
+                
+            if 'Song' in next_row:
+                self.next_song_label.config(text=f"Song: {next_row['Song']}")
+            else:
+                self.next_song_label.config(text="Song: --")
+                
+            if 'Score' in next_row:
+                self.next_score_label.config(text=f"Score: {next_row['Score']}")
+            else:
+                self.next_score_label.config(text="Score: --")
+            
+            # Display next observation text
+            self.next_observation_text.delete(1.0, tk.END)
+            if 'Observation' in next_row:
+                self.next_observation_text.insert(1.0, str(next_row['Observation']))
+            else:
+                display_text = ""
+                for col in self.current_df.columns:
+                    if col not in ['Aberrant_Vocalization', 'Motor_Agitation', 
+                                  'Aggressiveness', 'Resisting_Care', 'Duration_Seconds',
+                                  'Time', 'Song', 'Score']:
+                        display_text += f"{col}: {next_row[col]}\n"
+                self.next_observation_text.insert(1.0, display_text)
+        else:
+            # No next row
+            self.next_time_label.config(text="Time: --")
+            self.next_song_label.config(text="Song: --")
+            self.next_score_label.config(text="Score: --")
+            self.next_observation_text.delete(1.0, tk.END)
+            self.next_observation_text.insert(1.0, "No more observations in this file")
+            
+    def set_all_zero(self):
+        """Set all ratings to 0 (Not present) for quick entry"""
+        for category in self.pas_categories:
+            self.rating_vars[category].set(self.pas_categories[category][0])
+        self.update_status("All ratings set to 0 - Not present")
+        
     def save_rating(self):
         if self.current_df is None:
             return
             
+        # Check if any rating is set (not default)
+        any_rating_set = False
+        for category, var in self.rating_vars.items():
+            if var.get() != self.pas_categories[category][0]:
+                any_rating_set = True
+                break
+        
+        # If no rating is set, automatically set all to 0
+        if not any_rating_set:
+            self.set_all_zero()
+            
         # Save ratings to dataframe
         for category, var in self.rating_vars.items():
             col_name = category.replace(' ', '_')
-            self.current_df.at[self.current_row_index, col_name] = var.get()
+            # Extract just the number from the rating (e.g., "0 - Not present" -> "0")
+            rating_value = var.get().split(' - ')[0]
+            self.current_df.at[self.current_row_index, col_name] = rating_value
         
-        # Save duration
+        # Save duration in seconds
         try:
             duration = float(self.duration_var.get())
+            if duration <= 0:
+                messagebox.showwarning("Invalid Duration", "Duration must be greater than 0 seconds")
+                return
             self.current_df.at[self.current_row_index, 'Duration_Seconds'] = duration
         except ValueError:
-            messagebox.showwarning("Invalid Duration", "Please enter a valid number for duration")
+            messagebox.showwarning("Invalid Duration", "Please enter a valid number for duration in seconds")
             return
         
         self.update_status(f"Saved rating for row {self.current_row_index + 1}")
@@ -233,11 +381,13 @@ class PittsburghObservationTool:
         if self.current_df is not None and self.current_row_index < len(self.current_df) - 1:
             self.current_row_index += 1
             self.display_current_row()
+            self.display_next_row()
             
     def previous_row(self):
         if self.current_row_index > 0:
             self.current_row_index -= 1
             self.display_current_row()
+            self.display_next_row()
             
     def update_status(self, message):
         self.status_label.config(text=message)
