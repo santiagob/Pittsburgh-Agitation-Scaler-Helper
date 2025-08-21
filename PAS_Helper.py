@@ -9,7 +9,10 @@ class PittsburghObservationTool:
     def __init__(self, root):
         self.root = root
         self.root.title("Pittsburgh Agitation Scale Observation Tool")
-        self.root.geometry("1005x1000")
+        
+        # Remove fixed geometry - let it auto-size
+        # Set minimum size to prevent window from being too small
+        self.root.minsize(800, 600)
         
         # Variables
         self.current_csv_path = None
@@ -18,6 +21,7 @@ class PittsburghObservationTool:
         self.current_file_index = 0
         self.current_row_index = 0
         self.unsaved_changes = False
+        self.existing_processed_file = None
         
         # Pittsburgh Agitation Scale parameters
         self.pas_categories = {
@@ -30,36 +34,70 @@ class PittsburghObservationTool:
         self.setup_ui()
         self.setup_global_keybindings()
         
+        # Auto-size window to content after UI setup
+        self.root.update_idletasks()
+        
+        # Center window on screen after sizing
+        self.center_window()
+        
         # Bind window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+    def center_window(self):
+        """Center the window on the screen after auto-sizing"""
+        self.root.update_idletasks()  # Make sure window is rendered
+        
+        # Get window size
+        window_width = self.root.winfo_width()
+        window_height = self.root.winfo_height()
+        
+        # Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Calculate position coordinates
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        # Set window position
+        self.root.geometry(f'+{x}+{y}')
+        
     def setup_ui(self):
-        # Main container
+        # Main container with padding
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Configure grid weight for responsive design
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)  # Make middle section expandable
         
         # Top frame - folder selection and file info
         top_frame = ttk.LabelFrame(main_frame, text="Dataset Selection", padding="10")
-        top_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        top_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=5)
+        top_frame.columnconfigure(1, weight=1)  # Make folder label expandable
         
         ttk.Button(top_frame, text="Select PwD Dataset Folder", 
-                  command=self.select_folder).grid(row=0, column=0, padx=5)
+                  command=self.select_folder).grid(row=0, column=0, padx=5, sticky=tk.W)
         
-        self.folder_label = ttk.Label(top_frame, text="No folder selected")
-        self.folder_label.grid(row=0, column=1, padx=5)
+        self.folder_label = ttk.Label(top_frame, text="No folder selected", wraplength=400)
+        self.folder_label.grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
         
         # Unsaved changes indicator
         self.unsaved_indicator = ttk.Label(top_frame, text="", foreground="red", font=('Arial', 10, 'bold'))
-        self.unsaved_indicator.grid(row=0, column=2, padx=20)
+        self.unsaved_indicator.grid(row=0, column=2, padx=20, sticky=tk.E)
         
-        self.file_info_label = ttk.Label(top_frame, text="")
-        self.file_info_label.grid(row=1, column=0, columnspan=3, pady=5)
+        self.file_info_label = ttk.Label(top_frame, text="", wraplength=600)
+        self.file_info_label.grid(row=1, column=0, columnspan=3, pady=5, sticky=(tk.W, tk.E))
+        
+        # Existing data indicator
+        self.existing_data_label = ttk.Label(top_frame, text="", foreground="blue", font=('Arial', 9))
+        self.existing_data_label.grid(row=2, column=0, columnspan=3, pady=2)
         
         # CSV Navigation frame
         csv_nav_frame = ttk.Frame(main_frame)
-        csv_nav_frame.grid(row=1, column=0, columnspan=3, pady=10)
+        csv_nav_frame.grid(row=1, column=0, pady=10)
         
         ttk.Button(csv_nav_frame, text="◀ Previous CSV File", 
                   command=self.previous_csv).grid(row=0, column=0, padx=5)
@@ -70,21 +108,31 @@ class PittsburghObservationTool:
         ttk.Label(csv_nav_frame, text="(Alt+Left / Alt+Right)", 
                  font=('Arial', 9), foreground='gray').grid(row=1, column=0, columnspan=2, pady=2)
         
-        # Middle section container
+        # Middle section container - make it expandable
         middle_container = ttk.Frame(main_frame)
-        middle_container.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        middle_container.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        middle_container.columnconfigure(0, weight=3)  # Give more weight to observations
+        middle_container.columnconfigure(1, weight=1)  # Less weight to navigation
+        middle_container.rowconfigure(0, weight=1)
         
         # Left side - Observations display
         obs_container = ttk.Frame(middle_container)
         obs_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        obs_container.columnconfigure(0, weight=1)
+        obs_container.rowconfigure(0, weight=2)  # More weight to current observation
+        obs_container.rowconfigure(1, weight=1)  # Less weight to preview
         
         # Current observation frame
         current_obs_frame = ttk.LabelFrame(obs_container, text="CURRENT OBSERVATION", padding="10")
         current_obs_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        current_obs_frame.columnconfigure(0, weight=1)
         
         # Header info frame (Time, Song, Score)
         header_frame = ttk.Frame(current_obs_frame)
         header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        header_frame.columnconfigure(0, weight=1)
+        header_frame.columnconfigure(1, weight=1)
+        header_frame.columnconfigure(2, weight=1)
         
         self.time_label = ttk.Label(header_frame, text="Time: --", font=('Arial', 11))
         self.time_label.grid(row=0, column=0, padx=10, sticky=tk.W)
@@ -95,18 +143,21 @@ class PittsburghObservationTool:
         self.score_label = ttk.Label(header_frame, text="Score: --", font=('Arial', 11))
         self.score_label.grid(row=0, column=2, padx=10, sticky=tk.W)
         
-        # Main observation text
-        self.observation_text = tk.Text(current_obs_frame, height=8, width=70, wrap=tk.WORD, 
+        # Main observation text - set reasonable minimum size
+        self.observation_text = tk.Text(current_obs_frame, height=6, width=50, wrap=tk.WORD, 
                                        font=('Arial', 14), bg='#f8f8f8')
-        self.observation_text.grid(row=1, column=0, pady=5)
+        self.observation_text.grid(row=1, column=0, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.observation_text.config(state=tk.DISABLED)  # Make read-only
+        current_obs_frame.rowconfigure(1, weight=1)
         
         self.row_info_label = ttk.Label(current_obs_frame, text="Row: 0/0", font=('Arial', 10, 'bold'))
         self.row_info_label.grid(row=2, column=0, pady=5)
         
         # Next observation preview frame
         next_obs_frame = ttk.LabelFrame(obs_container, text="NEXT OBSERVATION PREVIEW", padding="10")
-        next_obs_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        next_obs_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(10, 0))
+        next_obs_frame.columnconfigure(0, weight=1)
+        next_obs_frame.rowconfigure(1, weight=1)
         
         # Next observation header
         next_header_frame = ttk.Frame(next_obs_frame)
@@ -122,14 +173,14 @@ class PittsburghObservationTool:
         self.next_score_label.grid(row=0, column=2, padx=10, sticky=tk.W)
         
         # Next observation text (smaller)
-        self.next_observation_text = tk.Text(next_obs_frame, height=4, width=70, wrap=tk.WORD, 
+        self.next_observation_text = tk.Text(next_obs_frame, height=3, width=50, wrap=tk.WORD, 
                                             font=('Arial', 11), bg='#f0f0f0', foreground='gray')
-        self.next_observation_text.grid(row=1, column=0)
+        self.next_observation_text.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.next_observation_text.config(state=tk.DISABLED)  # Make read-only
         
         # Right side - Row navigation buttons
         nav_frame = ttk.LabelFrame(middle_container, text="ROW NAVIGATION", padding="10")
-        nav_frame.grid(row=0, column=1, sticky=(tk.N, tk.S), padx=10)
+        nav_frame.grid(row=0, column=1, sticky=(tk.N, tk.S, tk.E, tk.W), padx=10)
         
         ttk.Button(nav_frame, text="↑\nPrevious\nRow", width=12, 
                   command=self.previous_row).grid(row=0, column=0, pady=10)
@@ -152,9 +203,14 @@ class PittsburghObservationTool:
                                        font=('Arial', 9), foreground='green')
         self.autosave_label.grid(row=5, column=0, pady=10)
         
+        # Quick rating shortcuts info
+        ttk.Label(nav_frame, text="Quick Set All:\nCtrl+1 to Ctrl+4", 
+                 font=('Arial', 8), foreground='gray', justify=tk.CENTER).grid(row=6, column=0, pady=5)
+        
         # Pittsburgh Scale Rating Section
         rating_frame = ttk.LabelFrame(main_frame, text="Pittsburgh Agitation Scale Rating", padding="10")
-        rating_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        rating_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=10)
+        rating_frame.columnconfigure(1, weight=1)
         
         self.rating_vars = {}
         self.rating_combos = {}  # Store references to comboboxes
@@ -165,8 +221,8 @@ class PittsburghObservationTool:
             
             self.rating_vars[category] = tk.StringVar(value=options[0])
             combo = ttk.Combobox(rating_frame, textvariable=self.rating_vars[category], 
-                                values=options, width=50, state='readonly')
-            combo.grid(row=i, column=1, pady=5, padx=5)
+                                values=options, width=40, state='readonly')
+            combo.grid(row=i, column=1, pady=5, padx=5, sticky=(tk.W, tk.E))
             
             # Store reference to combo
             self.rating_combos[category] = combo
@@ -186,7 +242,7 @@ class PittsburghObservationTool:
         
         ttk.Label(duration_frame, text="Observation Duration (seconds):", 
                  font=('Arial', 10, 'bold')).grid(row=0, column=0, padx=5)
-        self.duration_var = tk.StringVar(value="60")  # Default 1 minutes = 60 seconds
+        self.duration_var = tk.StringVar(value="600")  # Default 10 minutes = 600 seconds
         self.duration_entry = ttk.Entry(duration_frame, textvariable=self.duration_var, width=10)
         self.duration_entry.grid(row=0, column=1, padx=5)
         self.duration_entry.bind('<KeyRelease>', lambda e: self.mark_unsaved() if e.keysym not in ['Up', 'Down', 'Left', 'Right'] else None)
@@ -201,7 +257,7 @@ class PittsburghObservationTool:
         
         # Save buttons
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, columnspan=3, pady=20)
+        button_frame.grid(row=4, column=0, pady=20)
         
         ttk.Button(button_frame, text="Set All to 0 (Not Present) [Ctrl+0]", 
                   command=self.set_all_zero, style='Warning.TButton').grid(row=0, column=0, padx=5)
@@ -213,7 +269,7 @@ class PittsburghObservationTool:
         
         # Status bar
         self.status_label = ttk.Label(main_frame, text="Ready | Use Arrow Keys to Navigate", relief=tk.SUNKEN)
-        self.status_label.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        self.status_label.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=5)
         
     def setup_global_keybindings(self):
         """Setup global keyboard shortcuts that work regardless of focus"""
@@ -225,18 +281,63 @@ class PittsburghObservationTool:
         self.root.bind_all('<Control-s>', lambda e: self.save_file())
         self.root.bind_all('<Control-0>', lambda e: self.set_all_zero())
         
-        # Alternative number keys for ratings (1-4 for quick rating)
-        self.root.bind_all('<Control-1>', lambda e: self.quick_set_rating(1))
-        self.root.bind_all('<Control-2>', lambda e: self.quick_set_rating(2))
-        self.root.bind_all('<Control-3>', lambda e: self.quick_set_rating(3))
-        self.root.bind_all('<Control-4>', lambda e: self.quick_set_rating(4))
+        # Alternative number keys for ratings (Ctrl+1-4 for quick rating)
+        self.root.bind_all('<Control-Key-1>', lambda e: self.quick_set_rating(1))
+        self.root.bind_all('<Control-Key-2>', lambda e: self.quick_set_rating(2))
+        self.root.bind_all('<Control-Key-3>', lambda e: self.quick_set_rating(3))
+        self.root.bind_all('<Control-Key-4>', lambda e: self.quick_set_rating(4))
         
     def quick_set_rating(self, rating_level):
-        """Quick set all ratings to the same level using number keys"""
+        """Quick set all ratings to the same level using Ctrl+number keys"""
+        # Note: rating_level 1-4 maps to options 1-4 (not 0-4)
         for category in self.pas_categories:
             self.rating_vars[category].set(self.pas_categories[category][rating_level])
         self.mark_unsaved()
         self.update_status(f"All ratings set to level {rating_level}")
+        
+    def check_for_existing_processed_file(self, original_csv_path):
+        """Check if a processed version of this file already exists"""
+        base_name = os.path.basename(original_csv_path)
+        dir_name = os.path.dirname(original_csv_path)
+        
+        # Generate the expected processed filename
+        processed_name = base_name.replace("Observations.csv", "Observations_with_Pittsburgh_Scale.csv")
+        processed_path = os.path.join(dir_name, processed_name)
+        
+        if os.path.exists(processed_path):
+            return processed_path
+        return None
+        
+    def load_existing_ratings(self, processed_path):
+        """Load existing ratings from a previously processed file"""
+        try:
+            existing_df = pd.read_csv(processed_path)
+            
+            # Check if the processed file has the Pittsburgh columns
+            required_cols = ['Aberrant_Vocalization', 'Motor_Agitation', 
+                           'Aggressiveness', 'Resisting_Care', 'Duration_Seconds']
+            
+            if all(col in existing_df.columns for col in required_cols):
+                # Copy the ratings to the current dataframe, ensuring proper dtype
+                for col in required_cols:
+                    if col in existing_df.columns:
+                        # Convert to appropriate dtype to avoid FutureWarning
+                        if col == 'Duration_Seconds':
+                            # Duration should be numeric
+                            self.current_df[col] = pd.to_numeric(existing_df[col], errors='coerce').fillna(600)
+                        else:
+                            # Rating columns should be stored as integers
+                            self.current_df[col] = pd.to_numeric(existing_df[col], errors='coerce').fillna(0).astype('Int64')
+                
+                self.existing_data_label.config(
+                    text=f"✓ Loaded existing ratings from previous session", 
+                    foreground="green")
+                self.update_status("Loaded existing ratings from previous file")
+                return True
+        except Exception as e:
+            print(f"Could not load existing ratings: {e}")
+        
+        return False
         
     def mark_unsaved(self):
         """Mark that there are unsaved changes"""
@@ -267,21 +368,36 @@ class PittsburghObservationTool:
             for category in self.pas_categories:
                 self.rating_vars[category].set(self.pas_categories[category][0])
         
-        # Save ratings to dataframe
+        # Save ratings to dataframe with proper dtype handling
         for category, var in self.rating_vars.items():
             col_name = category.replace(' ', '_')
             # Extract just the number from the rating (e.g., "0 - Not present" -> "0")
             rating_value = var.get().split(' - ')[0]
-            self.current_df.at[self.current_row_index, col_name] = rating_value
+            
+            # Ensure proper dtype for the column
+            if col_name not in self.current_df.columns:
+                self.current_df[col_name] = pd.Series(dtype='Int64')
+            
+            # Convert rating_value to integer
+            try:
+                rating_int = int(rating_value)
+                self.current_df.at[self.current_row_index, col_name] = rating_int
+            except (ValueError, TypeError):
+                self.current_df.at[self.current_row_index, col_name] = 0
         
-        # Save duration in seconds
+        # Save duration in seconds with proper dtype
         try:
             duration = float(self.duration_var.get())
             if duration <= 0:
-                duration = 60  # Default to 60 seconds if invalid
-            self.current_df.at[self.current_row_index, 'Duration_Seconds'] = duration
+                duration = 600  # Default to 600 seconds if invalid
         except ValueError:
-            self.current_df.at[self.current_row_index, 'Duration_Seconds'] = 60
+            duration = 600
+            
+        # Ensure Duration_Seconds column has proper dtype
+        if 'Duration_Seconds' not in self.current_df.columns:
+            self.current_df['Duration_Seconds'] = pd.Series(dtype='float64')
+            
+        self.current_df.at[self.current_row_index, 'Duration_Seconds'] = duration
         
         self.update_status(f"Auto-saved row {self.current_row_index + 1}")
         self.mark_unsaved()
@@ -289,13 +405,17 @@ class PittsburghObservationTool:
     def select_folder(self):
         folder_path = filedialog.askdirectory(title="Select PwD Dataset Folder")
         if folder_path:
-            # Find all CSV files ending with "Observations.csv"
+            # Find all CSV files ending with "Observations.csv" but NOT "Observations_with_Pittsburgh_Scale.csv"
             pattern = os.path.join(folder_path, "**", "*Observations.csv")
-            self.csv_files = glob.glob(pattern, recursive=True)
+            all_csv_files = glob.glob(pattern, recursive=True)
+            
+            # Filter out already processed files
+            self.csv_files = [f for f in all_csv_files 
+                            if not f.endswith("Observations_with_Pittsburgh_Scale.csv")]
             
             if not self.csv_files:
                 messagebox.showwarning("No Files Found", 
-                                      "No CSV files ending with 'Observations.csv' found in the selected folder.")
+                                      "No unprocessed CSV files ending with 'Observations.csv' found in the selected folder.")
                 return
             
             self.folder_label.config(text=f"Folder: {os.path.basename(folder_path)}")
@@ -303,18 +423,34 @@ class PittsburghObservationTool:
             self.load_csv(self.csv_files[0])
             self.update_status(f"Found {len(self.csv_files)} observation files | Use Arrow Keys to Navigate")
             
+            # Update window size if needed
+            self.root.update_idletasks()
+            
     def load_csv(self, csv_path):
         try:
             self.current_csv_path = csv_path
             self.current_df = pd.read_csv(csv_path)
             
-            # Add new columns if they don't exist
-            new_columns = ['Aberrant_Vocalization', 'Motor_Agitation', 
-                          'Aggressiveness', 'Resisting_Care', 'Duration_Seconds']
+            # Add new columns if they don't exist with proper dtypes
+            rating_columns = ['Aberrant_Vocalization', 'Motor_Agitation', 
+                            'Aggressiveness', 'Resisting_Care']
             
-            for col in new_columns:
+            for col in rating_columns:
                 if col not in self.current_df.columns:
-                    self.current_df[col] = ''
+                    # Use Int64 dtype for rating columns (allows NaN values)
+                    self.current_df[col] = pd.Series(dtype='Int64')
+            
+            if 'Duration_Seconds' not in self.current_df.columns:
+                # Use float64 for duration
+                self.current_df['Duration_Seconds'] = pd.Series(dtype='float64')
+            
+            # Check for existing processed file and load ratings if available
+            self.existing_data_label.config(text="")
+            existing_file = self.check_for_existing_processed_file(csv_path)
+            if existing_file:
+                if messagebox.askyesno("Existing Data Found", 
+                                      f"Found previous ratings for this file.\n\nLoad existing ratings?"):
+                    self.load_existing_ratings(existing_file)
             
             self.current_row_index = 0
             self.display_current_row()
@@ -373,7 +509,7 @@ class PittsburghObservationTool:
             col_name = category.replace(' ', '_')
             if col_name in row and pd.notna(row[col_name]) and row[col_name] != '':
                 # Find the matching option from the dropdown
-                rating_value = str(row[col_name])
+                rating_value = str(int(row[col_name])) if pd.notna(row[col_name]) else '0'
                 for option in self.pas_categories[category]:
                     if option.startswith(rating_value + ' -'):
                         self.rating_vars[category].set(option)
@@ -383,9 +519,9 @@ class PittsburghObservationTool:
                 self.rating_vars[category].set(self.pas_categories[category][0])
         
         if 'Duration_Seconds' in row and pd.notna(row['Duration_Seconds']) and row['Duration_Seconds'] != '':
-            self.duration_var.set(str(row['Duration_Seconds']))
+            self.duration_var.set(str(int(row['Duration_Seconds']) if row['Duration_Seconds'] % 1 == 0 else row['Duration_Seconds']))
         else:
-            self.duration_var.set("60")  # Default to 60 seconds (10 minutes)
+            self.duration_var.set("600")  # Default to 600 seconds (10 minutes)
             
     def display_next_row(self):
         """Display preview of the next row"""
@@ -454,7 +590,7 @@ class PittsburghObservationTool:
         base_name = os.path.basename(self.current_csv_path)
         dir_name = os.path.dirname(self.current_csv_path)
         
-        # Remove "Observations.csv" and add "Pittsburgh_Observations.csv"
+        # Change to new naming convention
         new_name = base_name.replace("Observations.csv", "Observations_with_Pittsburgh_Scale.csv")
         new_path = os.path.join(dir_name, new_name)
         
