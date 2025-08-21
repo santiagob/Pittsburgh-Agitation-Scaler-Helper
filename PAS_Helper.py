@@ -28,6 +28,7 @@ class PittsburghObservationTool:
         }
         
         self.setup_ui()
+        self.setup_global_keybindings()
         
         # Bind window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -65,6 +66,10 @@ class PittsburghObservationTool:
         ttk.Button(csv_nav_frame, text="Next CSV File ▶", 
                   command=self.next_csv).grid(row=0, column=1, padx=5)
         
+        # Add keyboard hints
+        ttk.Label(csv_nav_frame, text="(Alt+Left / Alt+Right)", 
+                 font=('Arial', 9), foreground='gray').grid(row=1, column=0, columnspan=2, pady=2)
+        
         # Middle section container
         middle_container = ttk.Frame(main_frame)
         middle_container.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
@@ -94,6 +99,7 @@ class PittsburghObservationTool:
         self.observation_text = tk.Text(current_obs_frame, height=8, width=70, wrap=tk.WORD, 
                                        font=('Arial', 14), bg='#f8f8f8')
         self.observation_text.grid(row=1, column=0, pady=5)
+        self.observation_text.config(state=tk.DISABLED)  # Make read-only
         
         self.row_info_label = ttk.Label(current_obs_frame, text="Row: 0/0", font=('Arial', 10, 'bold'))
         self.row_info_label.grid(row=2, column=0, pady=5)
@@ -119,6 +125,7 @@ class PittsburghObservationTool:
         self.next_observation_text = tk.Text(next_obs_frame, height=4, width=70, wrap=tk.WORD, 
                                             font=('Arial', 11), bg='#f0f0f0', foreground='gray')
         self.next_observation_text.grid(row=1, column=0)
+        self.next_observation_text.config(state=tk.DISABLED)  # Make read-only
         
         # Right side - Row navigation buttons
         nav_frame = ttk.LabelFrame(middle_container, text="ROW NAVIGATION", padding="10")
@@ -127,23 +134,31 @@ class PittsburghObservationTool:
         ttk.Button(nav_frame, text="↑\nPrevious\nRow", width=12, 
                   command=self.previous_row).grid(row=0, column=0, pady=10)
         
+        ttk.Label(nav_frame, text="(Up Arrow)", font=('Arial', 9), 
+                 foreground='gray').grid(row=1, column=0)
+        
         self.current_row_label = ttk.Label(nav_frame, text="Current\nRow: 1", 
                                           font=('Arial', 11, 'bold'), justify=tk.CENTER)
-        self.current_row_label.grid(row=1, column=0, pady=20)
+        self.current_row_label.grid(row=2, column=0, pady=15)
         
         ttk.Button(nav_frame, text="↓\nNext\nRow", width=12, 
-                  command=self.next_row).grid(row=2, column=0, pady=10)
+                  command=self.next_row).grid(row=3, column=0, pady=10)
+        
+        ttk.Label(nav_frame, text="(Down Arrow)", font=('Arial', 9), 
+                 foreground='gray').grid(row=4, column=0)
         
         # Auto-save indicator
         self.autosave_label = ttk.Label(nav_frame, text="✓ Auto-save enabled", 
                                        font=('Arial', 9), foreground='green')
-        self.autosave_label.grid(row=3, column=0, pady=10)
+        self.autosave_label.grid(row=5, column=0, pady=10)
         
         # Pittsburgh Scale Rating Section
         rating_frame = ttk.LabelFrame(main_frame, text="Pittsburgh Agitation Scale Rating", padding="10")
         rating_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
         
         self.rating_vars = {}
+        self.rating_combos = {}  # Store references to comboboxes
+        
         for i, (category, options) in enumerate(self.pas_categories.items()):
             ttk.Label(rating_frame, text=f"{category}:", font=('Arial', 10, 'bold')).grid(
                 row=i, column=0, sticky=tk.W, pady=5, padx=5)
@@ -153,8 +168,17 @@ class PittsburghObservationTool:
                                 values=options, width=50, state='readonly')
             combo.grid(row=i, column=1, pady=5, padx=5)
             
+            # Store reference to combo
+            self.rating_combos[category] = combo
+            
             # Bind change event to mark unsaved changes
             combo.bind('<<ComboboxSelected>>', lambda e: self.mark_unsaved())
+            
+            # Override arrow key behavior in comboboxes
+            combo.bind('<Up>', lambda e: (self.previous_row(), "break")[1])
+            combo.bind('<Down>', lambda e: (self.next_row(), "break")[1])
+            combo.bind('<Left>', lambda e: "break")
+            combo.bind('<Right>', lambda e: "break")
         
         # Time duration input (in seconds)
         duration_frame = ttk.Frame(rating_frame)
@@ -162,10 +186,14 @@ class PittsburghObservationTool:
         
         ttk.Label(duration_frame, text="Observation Duration (seconds):", 
                  font=('Arial', 10, 'bold')).grid(row=0, column=0, padx=5)
-        self.duration_var = tk.StringVar(value="600")  # Default 10 minutes = 600 seconds
-        duration_entry = ttk.Entry(duration_frame, textvariable=self.duration_var, width=10)
-        duration_entry.grid(row=0, column=1, padx=5)
-        duration_entry.bind('<KeyRelease>', lambda e: self.mark_unsaved())
+        self.duration_var = tk.StringVar(value="60")  # Default 1 minutes = 60 seconds
+        self.duration_entry = ttk.Entry(duration_frame, textvariable=self.duration_var, width=10)
+        self.duration_entry.grid(row=0, column=1, padx=5)
+        self.duration_entry.bind('<KeyRelease>', lambda e: self.mark_unsaved() if e.keysym not in ['Up', 'Down', 'Left', 'Right'] else None)
+        
+        # Override arrow keys in entry field
+        self.duration_entry.bind('<Up>', lambda e: (self.previous_row(), "break")[1])
+        self.duration_entry.bind('<Down>', lambda e: (self.next_row(), "break")[1])
         
         # Helper label for common durations
         ttk.Label(duration_frame, text="(e.g., 60s = 1 min, 300s = 5 min, 600s = 10 min)", 
@@ -175,37 +203,52 @@ class PittsburghObservationTool:
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=4, column=0, columnspan=3, pady=20)
         
-        ttk.Button(button_frame, text="Set All to 0 (Not Present)", 
+        ttk.Button(button_frame, text="Set All to 0 (Not Present) [Ctrl+0]", 
                   command=self.set_all_zero, style='Warning.TButton').grid(row=0, column=0, padx=5)
         
         # Main save button - now the primary action
-        self.save_file_btn = ttk.Button(button_frame, text="💾 Save File to Disk", 
+        self.save_file_btn = ttk.Button(button_frame, text="💾 Save File to Disk [Ctrl+S]", 
                                         command=self.save_file, style='Accent.TButton')
         self.save_file_btn.grid(row=0, column=1, padx=20)
         
         # Status bar
-        self.status_label = ttk.Label(main_frame, text="Ready", relief=tk.SUNKEN)
+        self.status_label = ttk.Label(main_frame, text="Ready | Use Arrow Keys to Navigate", relief=tk.SUNKEN)
         self.status_label.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         
-        # Keyboard shortcuts
-        self.root.bind('<Control-s>', lambda e: self.save_file())
-        self.root.bind('<Control-0>', lambda e: self.set_all_zero())
-        self.root.bind('<Up>', lambda e: self.previous_row())
-        self.root.bind('<Down>', lambda e: self.next_row())
-        self.root.bind('<Left>', lambda e: self.previous_csv())
-        self.root.bind('<Right>', lambda e: self.next_csv())
+    def setup_global_keybindings(self):
+        """Setup global keyboard shortcuts that work regardless of focus"""
+        # Use bind_all for global bindings that work everywhere
+        self.root.bind_all('<Up>', lambda e: self.previous_row())
+        self.root.bind_all('<Down>', lambda e: self.next_row())
+        self.root.bind_all('<Alt-Left>', lambda e: self.previous_csv())
+        self.root.bind_all('<Alt-Right>', lambda e: self.next_csv())
+        self.root.bind_all('<Control-s>', lambda e: self.save_file())
+        self.root.bind_all('<Control-0>', lambda e: self.set_all_zero())
+        
+        # Alternative number keys for ratings (1-4 for quick rating)
+        self.root.bind_all('<Control-1>', lambda e: self.quick_set_rating(1))
+        self.root.bind_all('<Control-2>', lambda e: self.quick_set_rating(2))
+        self.root.bind_all('<Control-3>', lambda e: self.quick_set_rating(3))
+        self.root.bind_all('<Control-4>', lambda e: self.quick_set_rating(4))
+        
+    def quick_set_rating(self, rating_level):
+        """Quick set all ratings to the same level using number keys"""
+        for category in self.pas_categories:
+            self.rating_vars[category].set(self.pas_categories[category][rating_level])
+        self.mark_unsaved()
+        self.update_status(f"All ratings set to level {rating_level}")
         
     def mark_unsaved(self):
         """Mark that there are unsaved changes"""
         self.unsaved_changes = True
         self.unsaved_indicator.config(text="⚠ Unsaved changes")
-        self.save_file_btn.config(text="💾 Save File to Disk*")
+        self.save_file_btn.config(text="💾 Save File to Disk* [Ctrl+S]")
         
     def clear_unsaved(self):
         """Clear the unsaved changes indicator"""
         self.unsaved_changes = False
         self.unsaved_indicator.config(text="")
-        self.save_file_btn.config(text="💾 Save File to Disk")
+        self.save_file_btn.config(text="💾 Save File to Disk [Ctrl+S]")
         
     def auto_save_current_row(self):
         """Automatically save the current row's ratings to the dataframe"""
@@ -235,10 +278,10 @@ class PittsburghObservationTool:
         try:
             duration = float(self.duration_var.get())
             if duration <= 0:
-                duration = 600  # Default to 600 seconds if invalid
+                duration = 60  # Default to 60 seconds if invalid
             self.current_df.at[self.current_row_index, 'Duration_Seconds'] = duration
         except ValueError:
-            self.current_df.at[self.current_row_index, 'Duration_Seconds'] = 600
+            self.current_df.at[self.current_row_index, 'Duration_Seconds'] = 60
         
         self.update_status(f"Auto-saved row {self.current_row_index + 1}")
         self.mark_unsaved()
@@ -258,7 +301,7 @@ class PittsburghObservationTool:
             self.folder_label.config(text=f"Folder: {os.path.basename(folder_path)}")
             self.current_file_index = 0
             self.load_csv(self.csv_files[0])
-            self.update_status(f"Found {len(self.csv_files)} observation files")
+            self.update_status(f"Found {len(self.csv_files)} observation files | Use Arrow Keys to Navigate")
             
     def load_csv(self, csv_path):
         try:
@@ -282,6 +325,9 @@ class PittsburghObservationTool:
             self.file_info_label.config(
                 text=f"Current file: {filename} ({self.current_file_index + 1}/{len(self.csv_files)})")
             
+            # Set focus to main frame to ensure arrow keys work
+            self.root.focus_set()
+            
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load CSV: {str(e)}")
             
@@ -300,6 +346,7 @@ class PittsburghObservationTool:
             self.score_label.config(text=f"Score: {row['Score']}")
         
         # Display main observation text
+        self.observation_text.config(state=tk.NORMAL)
         self.observation_text.delete(1.0, tk.END)
         if 'Observation' in row:
             self.observation_text.insert(1.0, str(row['Observation']))
@@ -312,6 +359,7 @@ class PittsburghObservationTool:
                               'Time', 'Song', 'Score']:
                     display_text += f"{col}: {row[col]}\n"
             self.observation_text.insert(1.0, display_text)
+        self.observation_text.config(state=tk.DISABLED)
         
         # Update row info
         self.row_info_label.config(
@@ -337,13 +385,15 @@ class PittsburghObservationTool:
         if 'Duration_Seconds' in row and pd.notna(row['Duration_Seconds']) and row['Duration_Seconds'] != '':
             self.duration_var.set(str(row['Duration_Seconds']))
         else:
-            self.duration_var.set("600")  # Default to 600 seconds (10 minutes)
+            self.duration_var.set("60")  # Default to 60 seconds (10 minutes)
             
     def display_next_row(self):
         """Display preview of the next row"""
         if self.current_df is None or len(self.current_df) == 0:
             return
             
+        self.next_observation_text.config(state=tk.NORMAL)
+        
         if self.current_row_index < len(self.current_df) - 1:
             next_row = self.current_df.iloc[self.current_row_index + 1]
             
@@ -383,16 +433,19 @@ class PittsburghObservationTool:
             self.next_observation_text.delete(1.0, tk.END)
             self.next_observation_text.insert(1.0, "No more observations in this file")
             
+        self.next_observation_text.config(state=tk.DISABLED)
+            
     def set_all_zero(self):
         """Set all ratings to 0 (Not present) for quick entry"""
         for category in self.pas_categories:
             self.rating_vars[category].set(self.pas_categories[category][0])
         self.update_status("All ratings set to 0 - Not present")
         self.mark_unsaved()
+        return "break"  # Prevent event propagation
         
     def save_file(self):
         if self.current_df is None or self.current_csv_path is None:
-            return
+            return "break"
             
         # Auto-save current row before saving file
         self.auto_save_current_row()
@@ -402,7 +455,7 @@ class PittsburghObservationTool:
         dir_name = os.path.dirname(self.current_csv_path)
         
         # Remove "Observations.csv" and add "Pittsburgh_Observations.csv"
-        new_name = base_name.replace("Observations.csv", "Pittsburgh_Observations.csv")
+        new_name = base_name.replace("Observations.csv", "Observations_with_Pittsburgh_Scale.csv")
         new_path = os.path.join(dir_name, new_name)
         
         try:
@@ -412,6 +465,8 @@ class PittsburghObservationTool:
             messagebox.showinfo("Success", f"File saved as:\n{new_name}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save file: {str(e)}")
+        
+        return "break"  # Prevent event propagation
             
     def next_csv(self):
         if self.current_file_index < len(self.csv_files) - 1:
@@ -424,6 +479,7 @@ class PittsburghObservationTool:
             
             self.current_file_index += 1
             self.load_csv(self.csv_files[self.current_file_index])
+        return "break"  # Prevent event propagation
             
     def previous_csv(self):
         if self.current_file_index > 0:
@@ -436,6 +492,7 @@ class PittsburghObservationTool:
             
             self.current_file_index -= 1
             self.load_csv(self.csv_files[self.current_file_index])
+        return "break"  # Prevent event propagation
             
     def next_row(self):
         if self.current_df is not None and self.current_row_index < len(self.current_df) - 1:
@@ -446,6 +503,10 @@ class PittsburghObservationTool:
             self.display_current_row()
             self.display_next_row()
             
+            # Remove focus from any widget to ensure arrow keys keep working
+            self.root.focus_set()
+        return "break"  # Prevent event propagation
+            
     def previous_row(self):
         if self.current_row_index > 0:
             # Auto-save current row before moving
@@ -454,6 +515,10 @@ class PittsburghObservationTool:
             self.current_row_index -= 1
             self.display_current_row()
             self.display_next_row()
+            
+            # Remove focus from any widget to ensure arrow keys keep working
+            self.root.focus_set()
+        return "break"  # Prevent event propagation
             
     def on_closing(self):
         """Handle window closing event"""
