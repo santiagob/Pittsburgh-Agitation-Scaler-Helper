@@ -17,6 +17,7 @@ class PittsburghObservationTool:
         self.csv_files = []
         self.current_file_index = 0
         self.current_row_index = 0
+        self.unsaved_changes = False
         
         # Pittsburgh Agitation Scale parameters
         self.pas_categories = {
@@ -27,6 +28,9 @@ class PittsburghObservationTool:
         }
         
         self.setup_ui()
+        
+        # Bind window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
     def setup_ui(self):
         # Main container
@@ -45,8 +49,12 @@ class PittsburghObservationTool:
         self.folder_label = ttk.Label(top_frame, text="No folder selected")
         self.folder_label.grid(row=0, column=1, padx=5)
         
+        # Unsaved changes indicator
+        self.unsaved_indicator = ttk.Label(top_frame, text="", foreground="red", font=('Arial', 10, 'bold'))
+        self.unsaved_indicator.grid(row=0, column=2, padx=20)
+        
         self.file_info_label = ttk.Label(top_frame, text="")
-        self.file_info_label.grid(row=1, column=0, columnspan=2, pady=5)
+        self.file_info_label.grid(row=1, column=0, columnspan=3, pady=5)
         
         # CSV Navigation frame
         csv_nav_frame = ttk.Frame(main_frame)
@@ -126,6 +134,11 @@ class PittsburghObservationTool:
         ttk.Button(nav_frame, text="↓\nNext\nRow", width=12, 
                   command=self.next_row).grid(row=2, column=0, pady=10)
         
+        # Auto-save indicator
+        self.autosave_label = ttk.Label(nav_frame, text="✓ Auto-save enabled", 
+                                       font=('Arial', 9), foreground='green')
+        self.autosave_label.grid(row=3, column=0, pady=10)
+        
         # Pittsburgh Scale Rating Section
         rating_frame = ttk.LabelFrame(main_frame, text="Pittsburgh Agitation Scale Rating", padding="10")
         rating_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
@@ -139,6 +152,9 @@ class PittsburghObservationTool:
             combo = ttk.Combobox(rating_frame, textvariable=self.rating_vars[category], 
                                 values=options, width=50, state='readonly')
             combo.grid(row=i, column=1, pady=5, padx=5)
+            
+            # Bind change event to mark unsaved changes
+            combo.bind('<<ComboboxSelected>>', lambda e: self.mark_unsaved())
         
         # Time duration input (in seconds)
         duration_frame = ttk.Frame(rating_frame)
@@ -149,6 +165,7 @@ class PittsburghObservationTool:
         self.duration_var = tk.StringVar(value="600")  # Default 10 minutes = 600 seconds
         duration_entry = ttk.Entry(duration_frame, textvariable=self.duration_var, width=10)
         duration_entry.grid(row=0, column=1, padx=5)
+        duration_entry.bind('<KeyRelease>', lambda e: self.mark_unsaved())
         
         # Helper label for common durations
         ttk.Label(duration_frame, text="(e.g., 60s = 1 min, 300s = 5 min, 600s = 10 min)", 
@@ -160,14 +177,71 @@ class PittsburghObservationTool:
         
         ttk.Button(button_frame, text="Set All to 0 (Not Present)", 
                   command=self.set_all_zero, style='Warning.TButton').grid(row=0, column=0, padx=5)
-        ttk.Button(button_frame, text="Save Rating for Current Row", 
-                  command=self.save_rating, style='Accent.TButton').grid(row=0, column=1, padx=5)
-        ttk.Button(button_frame, text="Save All Changes to File", 
-                  command=self.save_file, style='Accent.TButton').grid(row=0, column=2, padx=5)
+        
+        # Main save button - now the primary action
+        self.save_file_btn = ttk.Button(button_frame, text="💾 Save File to Disk", 
+                                        command=self.save_file, style='Accent.TButton')
+        self.save_file_btn.grid(row=0, column=1, padx=20)
         
         # Status bar
         self.status_label = ttk.Label(main_frame, text="Ready", relief=tk.SUNKEN)
         self.status_label.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        
+        # Keyboard shortcuts
+        self.root.bind('<Control-s>', lambda e: self.save_file())
+        self.root.bind('<Control-0>', lambda e: self.set_all_zero())
+        self.root.bind('<Up>', lambda e: self.previous_row())
+        self.root.bind('<Down>', lambda e: self.next_row())
+        self.root.bind('<Left>', lambda e: self.previous_csv())
+        self.root.bind('<Right>', lambda e: self.next_csv())
+        
+    def mark_unsaved(self):
+        """Mark that there are unsaved changes"""
+        self.unsaved_changes = True
+        self.unsaved_indicator.config(text="⚠ Unsaved changes")
+        self.save_file_btn.config(text="💾 Save File to Disk*")
+        
+    def clear_unsaved(self):
+        """Clear the unsaved changes indicator"""
+        self.unsaved_changes = False
+        self.unsaved_indicator.config(text="")
+        self.save_file_btn.config(text="💾 Save File to Disk")
+        
+    def auto_save_current_row(self):
+        """Automatically save the current row's ratings to the dataframe"""
+        if self.current_df is None:
+            return
+            
+        # Check if any rating is set (not default)
+        any_rating_set = False
+        for category, var in self.rating_vars.items():
+            if var.get() != self.pas_categories[category][0]:
+                any_rating_set = True
+                break
+        
+        # If no rating is set, automatically set all to 0
+        if not any_rating_set:
+            for category in self.pas_categories:
+                self.rating_vars[category].set(self.pas_categories[category][0])
+        
+        # Save ratings to dataframe
+        for category, var in self.rating_vars.items():
+            col_name = category.replace(' ', '_')
+            # Extract just the number from the rating (e.g., "0 - Not present" -> "0")
+            rating_value = var.get().split(' - ')[0]
+            self.current_df.at[self.current_row_index, col_name] = rating_value
+        
+        # Save duration in seconds
+        try:
+            duration = float(self.duration_var.get())
+            if duration <= 0:
+                duration = 600  # Default to 600 seconds if invalid
+            self.current_df.at[self.current_row_index, 'Duration_Seconds'] = duration
+        except ValueError:
+            self.current_df.at[self.current_row_index, 'Duration_Seconds'] = 600
+        
+        self.update_status(f"Auto-saved row {self.current_row_index + 1}")
+        self.mark_unsaved()
         
     def select_folder(self):
         folder_path = filedialog.askdirectory(title="Select PwD Dataset Folder")
@@ -181,7 +255,7 @@ class PittsburghObservationTool:
                                       "No CSV files ending with 'Observations.csv' found in the selected folder.")
                 return
             
-            self.folder_label.config(text=f"Folder: {folder_path}")
+            self.folder_label.config(text=f"Folder: {os.path.basename(folder_path)}")
             self.current_file_index = 0
             self.load_csv(self.csv_files[0])
             self.update_status(f"Found {len(self.csv_files)} observation files")
@@ -202,6 +276,7 @@ class PittsburghObservationTool:
             self.current_row_index = 0
             self.display_current_row()
             self.display_next_row()
+            self.clear_unsaved()
             
             filename = os.path.basename(csv_path)
             self.file_info_label.config(
@@ -249,8 +324,13 @@ class PittsburghObservationTool:
         for category in self.pas_categories:
             col_name = category.replace(' ', '_')
             if col_name in row and pd.notna(row[col_name]) and row[col_name] != '':
-                self.rating_vars[category].set(row[col_name])
-                has_ratings = True
+                # Find the matching option from the dropdown
+                rating_value = str(row[col_name])
+                for option in self.pas_categories[category]:
+                    if option.startswith(rating_value + ' -'):
+                        self.rating_vars[category].set(option)
+                        has_ratings = True
+                        break
             else:
                 self.rating_vars[category].set(self.pas_categories[category][0])
         
@@ -308,50 +388,15 @@ class PittsburghObservationTool:
         for category in self.pas_categories:
             self.rating_vars[category].set(self.pas_categories[category][0])
         self.update_status("All ratings set to 0 - Not present")
+        self.mark_unsaved()
         
-    def save_rating(self):
-        if self.current_df is None:
-            return
-            
-        # Check if any rating is set (not default)
-        any_rating_set = False
-        for category, var in self.rating_vars.items():
-            if var.get() != self.pas_categories[category][0]:
-                any_rating_set = True
-                break
-        
-        # If no rating is set, automatically set all to 0
-        if not any_rating_set:
-            self.set_all_zero()
-            
-        # Save ratings to dataframe
-        for category, var in self.rating_vars.items():
-            col_name = category.replace(' ', '_')
-            # Extract just the number from the rating (e.g., "0 - Not present" -> "0")
-            rating_value = var.get().split(' - ')[0]
-            self.current_df.at[self.current_row_index, col_name] = rating_value
-        
-        # Save duration in seconds
-        try:
-            duration = float(self.duration_var.get())
-            if duration <= 0:
-                messagebox.showwarning("Invalid Duration", "Duration must be greater than 0 seconds")
-                return
-            self.current_df.at[self.current_row_index, 'Duration_Seconds'] = duration
-        except ValueError:
-            messagebox.showwarning("Invalid Duration", "Please enter a valid number for duration in seconds")
-            return
-        
-        self.update_status(f"Saved rating for row {self.current_row_index + 1}")
-        
-        # Auto-advance to next row
-        if self.current_row_index < len(self.current_df) - 1:
-            self.next_row()
-            
     def save_file(self):
         if self.current_df is None or self.current_csv_path is None:
             return
             
+        # Auto-save current row before saving file
+        self.auto_save_current_row()
+        
         # Generate new filename
         base_name = os.path.basename(self.current_csv_path)
         dir_name = os.path.dirname(self.current_csv_path)
@@ -363,31 +408,63 @@ class PittsburghObservationTool:
         try:
             self.current_df.to_csv(new_path, index=False)
             self.update_status(f"Saved to {new_name}")
+            self.clear_unsaved()
             messagebox.showinfo("Success", f"File saved as:\n{new_name}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save file: {str(e)}")
             
     def next_csv(self):
         if self.current_file_index < len(self.csv_files) - 1:
+            # Auto-save current row before switching
+            self.auto_save_current_row()
+            
+            if self.unsaved_changes:
+                if messagebox.askyesno("Save Changes", "Save current file before moving to next?"):
+                    self.save_file()
+            
             self.current_file_index += 1
             self.load_csv(self.csv_files[self.current_file_index])
             
     def previous_csv(self):
         if self.current_file_index > 0:
+            # Auto-save current row before switching
+            self.auto_save_current_row()
+            
+            if self.unsaved_changes:
+                if messagebox.askyesno("Save Changes", "Save current file before moving to previous?"):
+                    self.save_file()
+            
             self.current_file_index -= 1
             self.load_csv(self.csv_files[self.current_file_index])
             
     def next_row(self):
         if self.current_df is not None and self.current_row_index < len(self.current_df) - 1:
+            # Auto-save current row before moving
+            self.auto_save_current_row()
+            
             self.current_row_index += 1
             self.display_current_row()
             self.display_next_row()
             
     def previous_row(self):
         if self.current_row_index > 0:
+            # Auto-save current row before moving
+            self.auto_save_current_row()
+            
             self.current_row_index -= 1
             self.display_current_row()
             self.display_next_row()
+            
+    def on_closing(self):
+        """Handle window closing event"""
+        if self.unsaved_changes:
+            if messagebox.askyesnocancel("Save Changes", "Do you want to save changes before closing?"):
+                self.save_file()
+                self.root.destroy()
+            elif messagebox.askyesno("Confirm", "Close without saving?"):
+                self.root.destroy()
+        else:
+            self.root.destroy()
             
     def update_status(self, message):
         self.status_label.config(text=message)
