@@ -218,26 +218,23 @@ class PittsburghTimeSeriesGenerator:
             # Add song info if available (FULL TEXT)
             if pd.notna(row.get('Song', '')) and str(row['Song']).strip():
                 song_text = str(row['Song']).strip()
-                # Wrap long song titles
-                wrapped_song = '\n'.join(textwrap.wrap(song_text, width=30))
-                text_parts.append(f"♪ {wrapped_song}")
+                text_parts.append(f"♪ {song_text}")
             
-                # Add score if available
-                if pd.notna(row.get('Score', '')) and str(row['Score']).strip():
-                    text_parts.append(f"S:{row['Score']}")
-            else:
-                # Add observation if available (FULL TEXT)
-                if pd.notna(row.get('Observations', '')) and str(row['Observations']).strip():
-                    obs_text = str(row['Observations']).strip()
-                    # Wrap long observations
-                    wrapped_obs = '\n'.join(textwrap.wrap(obs_text, width=35))
-                    text_parts.append(wrapped_obs)
+            # Add score if available
+            if pd.notna(row.get('Score', '')) and str(row['Score']).strip():
+                text_parts.append(f"Score: {row['Score']}")
+            
+            # Add observation if available (FULL TEXT)
+            if pd.notna(row.get('Observations', '')) and str(row['Observations']).strip():
+                obs_text = str(row['Observations']).strip()
+                text_parts.append(obs_text)
             
             if text_parts:  # Only add annotation if there's text
                 annotation_time = self.seconds_to_datetime(time_sec)
+                # Join with separator for single-line display
                 annotations.append({
                     'time': annotation_time,
-                    'text': '\n'.join(text_parts),  # Multi-line text
+                    'text': ' | '.join(text_parts),  # Single line with separators
                     'has_song': pd.notna(row.get('Song', '')) and str(row['Song']).strip()
                 })
                 
@@ -247,12 +244,8 @@ class PittsburghTimeSeriesGenerator:
                         music_start = annotation_time
                     music_end = annotation_time + timedelta(seconds=float(row.get('Duration_Seconds', 600)))
         
-        # Calculate figure height based on annotation content
-        max_lines = max([ann['text'].count('\n') + 1 for ann in annotations], default=1)
-        fig_height = max(16, 14 + (max_lines * 0.3))
-        
-        # Create figure with subplots - dynamic height based on content
-        fig, axes = plt.subplots(5, 1, figsize=(26, fig_height), sharex=True)
+        # Create figure with extended width for 45-degree annotations
+        fig, axes = plt.subplots(5, 1, figsize=(28, 16), sharex=True)
         fig.suptitle(f'Pittsburgh Agitation Scale Time Series with Annotations\n{os.path.basename(original_file)}', 
                     fontsize=16, fontweight='bold')
         
@@ -304,45 +297,33 @@ class PittsburghTimeSeriesGenerator:
             ax.axvspan(music_start, music_end, color='lightgray', alpha=0.3, zorder=0, label='Music Period')
         
         ax.set_ylabel('Total Agitation\n(Sum)', fontsize=10, fontweight='bold')
-        ax.set_ylim(-2, 17)
+        ax.set_ylim(-3, 17)
         ax.grid(True, alpha=0.3, axis='y')
         
-        # Add annotations with alternating vertical positions to reduce overlap
+        # Add ALL annotations at the SAME level with 45-degree rotation
         if annotations:
-            # Use alternating levels for adjacent annotations
-            y_levels = [-0.15, -0.35, -0.55]
-            level_index = 0
+            # Single y-position for all annotations
+            y_position = -0.15
             
-            for i, annotation in enumerate(annotations):
-                # Check if next annotation is close in time
-                if i > 0:
-                    time_diff = (annotation['time'] - annotations[i-1]['time']).total_seconds()
-                    if time_diff < 120:  # If within 2 minutes, alternate level
-                        level_index = (level_index + 1) % len(y_levels)
-                    else:
-                        level_index = 0  # Reset to top level
-                
-                y_position = y_levels[level_index]
-                
+            for annotation in annotations:
                 # Add vertical line at annotation time
                 line_color = 'blue' if annotation.get('has_song', False) else 'gray'
                 ax.axvline(x=annotation['time'], color=line_color, linestyle=':', alpha=0.4, linewidth=0.8)
                 
-                # Add full annotation text
+                # Add annotation at 45 degrees
                 ax.annotate(
                     annotation['text'],
                     xy=(annotation['time'], y_position),
                     xycoords=('data', 'axes fraction'),
-                    ha='center',  # Center align for better readability
+                    ha='right',  # Right align for 45-degree rotation
                     va='top',
-                    fontsize=7,
-                    rotation=0,  # No rotation for better readability of full text
-                    bbox=dict(boxstyle="round,pad=0.3", 
+                    fontsize=5,  # Small font to accommodate dense text
+                    rotation=45,  # Exactly 45 degrees as requested
+                    rotation_mode='anchor',
+                    bbox=dict(boxstyle="round,pad=0.2", 
                              fc="lightyellow" if annotation.get('has_song', False) else "white", 
                              ec="blue" if annotation.get('has_song', False) else "gray", 
-                             lw=0.5, alpha=0.95),
-                    arrowprops=dict(arrowstyle="-", connectionstyle="arc3,rad=0.1", 
-                                  color=line_color, alpha=0.5, lw=0.5)
+                             lw=0.5, alpha=0.9)
                 )
         
         # Add statistics for total
@@ -369,9 +350,9 @@ class PittsburghTimeSeriesGenerator:
         # Rotate x-axis labels
         fig.autofmt_xdate()
         
-        # Adjust layout with extra space for annotations
+        # Adjust layout with space for 45-degree annotations
         plt.tight_layout()
-        plt.subplots_adjust(bottom=0.3)  # Extra room for annotations
+        plt.subplots_adjust(bottom=0.25)  # Room for angled annotations
         
         # Save the plot
         plot_file = save_path.replace('.csv', '_annotated_plot.png')
@@ -424,7 +405,7 @@ class PittsburghTimeSeriesGenerator:
                     
                     # Create and save annotated plot
                     self.plot_time_series_with_annotations(ts_df, obs_df, obs_file, output_path)
-                    print(f"  ✓ Created annotated plot")
+                    print(f"  ✓ Created annotated plot with 45-degree labels")
                     
                     processed_files.append(output_path)
                 else:
@@ -453,8 +434,9 @@ def main():
     print("\n📋 INSTRUCTIONS:")
     print("   1. This tool converts Pittsburgh Scale observations to time series data")
     print("   2. It creates 1-second resolution data with annotated visualizations")
-    print("   3. You need to select the folder containing your processed observation files")
-    print("   4. Files must end with '_Observations_with_Pittsburgh_Scale.csv'")
+    print("   3. ALL annotations displayed at the same level with 45-degree rotation")
+    print("   4. You need to select the folder containing your processed observation files")
+    print("   5. Files must end with '_Observations_with_Pittsburgh_Scale.csv'")
     print("\n" + "-"*70)
     
     # Create root window (hidden)
@@ -467,7 +449,8 @@ def main():
         "Please select the folder containing your Pittsburgh observation files.\n\n" +
         "The tool will:\n" +
         "• Generate 1-second time series data\n" +
-        "• Create annotated visualization plots with full text\n" +
+        "• Create annotated plots with 45-degree rotated labels\n" +
+        "• All labels at the same vertical position\n" +
         "• Save all outputs in the same directories\n\n" +
         "Click OK to select your folder."
     )
@@ -498,7 +481,7 @@ def main():
             f"Successfully processed {len(processed_files)} files!\n\n" +
             "Generated outputs:\n" +
             "• Time series CSV files (*_Pittsburgh_TimeSeries_1sec.csv)\n" +
-            "• Annotated plot images (*_annotated_plot.png) with full text\n\n" +
+            "• Annotated plot images with 45° labels (*_annotated_plot.png)\n\n" +
             "All files saved in their original directories."
         )
         print("\n✅ All files processed successfully!")
